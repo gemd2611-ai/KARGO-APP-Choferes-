@@ -17,11 +17,11 @@ st.set_page_config(
 # ESTILOS — APP CHOFER
 # =========================================================
 def render_html(content, unsafe_allow_html=True):
-    """Render HTML safely without Markdown treating indentation as code."""
-    st.markdown(
-        textwrap.dedent(content).strip(),
-        unsafe_allow_html=unsafe_allow_html,
-    )
+    """
+    Render HTML directamente con el motor nativo de Streamlit.
+    Se conserva unsafe_allow_html por compatibilidad con el código existente.
+    """
+    st.html(textwrap.dedent(content).strip())
 
 
 render_html(
