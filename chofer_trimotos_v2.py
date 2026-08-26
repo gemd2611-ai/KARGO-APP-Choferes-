@@ -16,6 +16,14 @@ st.set_page_config(
 # =========================================================
 # ESTILOS — APP CHOFER
 # =========================================================
+def render_html(content, unsafe_allow_html=True):
+    """Render HTML safely without Markdown treating indentation as code."""
+    st.markdown(
+        textwrap.dedent(content).strip(),
+        unsafe_allow_html=unsafe_allow_html,
+    )
+
+
 render_html(
     """
     <style>
@@ -416,10 +424,6 @@ render_html(
     unsafe_allow_html=True,
 )
 
-
-def render_html(content):
-    """Render HTML without accidental Markdown code-block indentation."""
-    st.markdown(textwrap.dedent(content).strip(), unsafe_allow_html=True)
 
 # =========================================================
 # SUPABASE
