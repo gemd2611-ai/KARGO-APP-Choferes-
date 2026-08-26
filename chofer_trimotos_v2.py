@@ -702,6 +702,38 @@ else:
                 key=lambda x: str(x.get("fecha", "")),
                 reverse=True,
             ):
+                # -------------------------
+                # ETAPA 3 · SEGUIMIENTO VISUAL
+                # -------------------------
+                pasos = [
+                    ("🟡", "Nueva"),
+                    ("🔵", "Aceptada"),
+                    ("🟠", "En camino"),
+                    ("🟣", "En entrega"),
+                    ("🟢", "Entregada"),
+                ]
+
+                estado_actual = v.get("estatus")
+                orden = {
+                    ESTADO_NUEVA: 0,
+                    ESTADO_ACEPTADA: 1,
+                    ESTADO_EN_CAMINO: 2,
+                    ESTADO_EN_ENTREGA: 3,
+                    ESTADO_ENTREGADA: 4,
+                    ESTADO_LEGACY: 2,
+                }
+                indice_actual = orden.get(estado_actual, 0)
+
+                progress_html = '<div class="trip-progress" style="display:flex;align-items:center;justify-content:space-between;margin:12px 0 18px;padding:12px;background:#F9FAFB;border-radius:16px;">'
+                for i, (icono, nombre_paso) in enumerate(pasos):
+                    activo = i <= indice_actual
+                    opacidad = "1" if activo else "0.35"
+                    peso = "800" if i == indice_actual else "600"
+                    progress_html += f'<div style="text-align:center;flex:1;opacity:{opacidad};"><div style="font-size:16px;">{icono}</div><div style="font-size:9px;color:#6B7280;font-weight:{peso};margin-top:3px;">{nombre_paso}</div></div>'
+                progress_html += '</div>'
+
+                render_html(progress_html, unsafe_allow_html=True)
+
                 render_html(
                     f"""
                     <div class="service-card">
