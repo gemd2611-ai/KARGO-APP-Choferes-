@@ -228,6 +228,11 @@ render_html(
         margin-top: 13px;
     }
 
+    .accepted-pill {
+        background: #EAF2FF;
+        color: #285EA8;
+    }
+
     .route-container {
         background: #F7F8FA;
         border-radius: 17px;
@@ -437,6 +442,29 @@ except Exception:
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
+ESTADO_NUEVA = "🟡 Nueva"
+ESTADO_ACEPTADA = "🔵 Aceptada"
+ESTADO_RECHAZADA = "🔴 Rechazada"
+ESTADO_ENTREGADA = "🟢 Entregado"
+ESTADO_LEGACY = "🟡 En Ruta"
+
+ESTADOS_PENDIENTES_CHOFER = {ESTADO_NUEVA, ESTADO_ACEPTADA, ESTADO_LEGACY}
+
+
+def actualizar_estatus_viaje(viaje_id, nuevo_estatus):
+    try:
+        (
+            supabase.table("viajes")
+            .update({"estatus": nuevo_estatus})
+            .eq("id", viaje_id)
+            .execute()
+        )
+        return True, None
+    except Exception as e:
+        return False, e
+
+
+
 # =========================================================
 # SESIÓN
 # =========================================================
@@ -589,7 +617,7 @@ else:
 
     pendientes = [
         v for v in viajes
-        if v.get("estatus") == "🟡 En Ruta"
+        if v.get("estatus") in ESTADOS_PENDIENTES_CHOFER
     ]
 
     entregados = [
@@ -690,7 +718,7 @@ else:
                             </div>
                         </div>
 
-                        <span class="pending-pill">🟡 SERVICIO ACTIVO</span>
+                        <span class="pending-pill">{v.get("estatus", "Sin estado")}</span>
 
                         <div class="route-container">
                             <div class="route-item">
@@ -718,47 +746,85 @@ else:
                     unsafe_allow_html=True,
                 )
 
-                st.info(
-                    "El servicio está asignado a tu usuario. "
-                    "La gestión de aceptación/rechazo se agregará en la siguiente etapa."
-                )
+                estatus_viaje = v.get("estatus")
 
-                foto = st.camera_input(
-                    "📸 Tomar foto de entrega",
-                    key=f"cam_home_{v['id']}",
-                )
+                if estatus_viaje == ESTADO_NUEVA:
+                    st.warning("🟡 Nueva carrera · Esperando tu respuesta")
+                    b_accept, b_reject = st.columns(2)
 
-                if foto:
-                    if st.button(
-                        "✅ Confirmar entrega y enviar foto",
-                        key=f"btn_home_{v['id']}",
-                        use_container_width=True,
-                        type="primary",
-                    ):
-                        b64_foto = (
-                            "data:image/png;base64,"
-                            + base64.b64encode(foto.getvalue()).decode()
-                        )
+                    with b_accept:
+                        if st.button(
+                            "✅ Aceptar carrera",
+                            key=f"accept_home_{v['id']}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            ok, error = actualizar_estatus_viaje(
+                                v["id"], ESTADO_ACEPTADA
+                            )
+                            if ok:
+                                st.success("¡Carrera aceptada!")
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible aceptar la carrera: {error}")
 
-                        try:
-                            (
-                                supabase.table("viajes")
-                                .update(
-                                    {
-                                        "estatus": "🟢 Entregado",
-                                        "foto_base64": b64_foto,
-                                    }
-                                )
-                                .eq("id", v["id"])
-                                .execute()
+                    with b_reject:
+                        if st.button(
+                            "❌ Rechazar",
+                            key=f"reject_home_{v['id']}",
+                            use_container_width=True,
+                        ):
+                            ok, error = actualizar_estatus_viaje(
+                                v["id"], ESTADO_RECHAZADA
+                            )
+                            if ok:
+                                st.warning("Carrera rechazada.")
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible rechazar la carrera: {error}")
+
+                else:
+                    if estatus_viaje == ESTADO_ACEPTADA:
+                        st.success("🔵 Carrera aceptada · Ya puedes realizar la entrega.")
+                    elif estatus_viaje == ESTADO_LEGACY:
+                        st.info("🛵 Carrera activa de un despacho anterior.")
+
+                    foto = st.camera_input(
+                        "📸 Tomar foto de entrega",
+                        key=f"cam_home_{v['id']}",
+                    )
+
+                    if foto:
+                        if st.button(
+                            "✅ Confirmar entrega y enviar foto",
+                            key=f"btn_home_{v['id']}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            b64_foto = (
+                                "data:image/png;base64,"
+                                + base64.b64encode(foto.getvalue()).decode()
                             )
 
-                            st.success("¡Entrega guardada correctamente!")
-                            st.rerun()
-                        except Exception as e:
-                            st.error(
-                                f"No fue posible guardar la entrega: {e}"
+                            ok, error = actualizar_estatus_viaje(
+                                v["id"], ESTADO_ENTREGADA
                             )
+                            if ok:
+                                try:
+                                    (
+                                        supabase.table("viajes")
+                                        .update({"foto_base64": b64_foto})
+                                        .eq("id", v["id"])
+                                        .execute()
+                                    )
+                                    st.success("¡Entrega guardada correctamente!")
+                                    st.rerun()
+                                except Exception as e:
+                                    st.error(
+                                        f"La entrega cambió de estado, pero no se pudo guardar la foto: {e}"
+                                    )
+                            else:
+                                st.error(f"No fue posible guardar la entrega: {error}")
 
         render_html(
             '<div class="section-title">💰 Resumen</div>',
@@ -803,7 +869,7 @@ else:
         )
 
         tab_pending, tab_done = st.tabs(
-            ["🟡 Pendientes", "🟢 Completados"]
+            ["📥 Nuevas / Activas", "🟢 Completados"]
         )
 
         with tab_pending:
@@ -868,6 +934,37 @@ else:
                         """,
                         unsafe_allow_html=True,
                     )
+
+                    if v.get("estatus") == ESTADO_NUEVA:
+                        st.caption("🟡 Nueva carrera · Esperando tu respuesta")
+                        b_accept, b_reject = st.columns(2)
+                        with b_accept:
+                            if st.button(
+                                "✅ Aceptar",
+                                key=f"accept_list_{v['id']}",
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                ok, error = actualizar_estatus_viaje(v["id"], ESTADO_ACEPTADA)
+                                if ok:
+                                    st.rerun()
+                                else:
+                                    st.error(f"No fue posible aceptar: {error}")
+                        with b_reject:
+                            if st.button(
+                                "❌ Rechazar",
+                                key=f"reject_list_{v['id']}",
+                                use_container_width=True,
+                            ):
+                                ok, error = actualizar_estatus_viaje(v["id"], ESTADO_RECHAZADA)
+                                if ok:
+                                    st.rerun()
+                                else:
+                                    st.error(f"No fue posible rechazar: {error}")
+                    elif v.get("estatus") == ESTADO_ACEPTADA:
+                        st.success("🔵 Carrera aceptada")
+                    elif v.get("estatus") == ESTADO_LEGACY:
+                        st.info("🛵 Carrera activa de un despacho anterior")
 
         with tab_done:
             if not entregados:
