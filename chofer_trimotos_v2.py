@@ -1,5 +1,7 @@
 import streamlit as st
+from streamlit_js_eval import get_geolocation
 import base64
+from datetime import datetime
 import textwrap
 from supabase import create_client
 
@@ -465,6 +467,29 @@ def actualizar_estatus_viaje(viaje_id, nuevo_estatus):
     except Exception as e:
         return False, e
 
+
+
+
+def guardar_ubicacion_gps(viaje_id, location):
+    """Guarda la última ubicación GPS del teléfono en el viaje."""
+    try:
+        if not location or "coords" not in location:
+            return False, "No se recibió una ubicación válida."
+        coords = location["coords"]
+        lat, lon = coords.get("latitude"), coords.get("longitude")
+        accuracy = coords.get("accuracy")
+        if lat is None or lon is None:
+            return False, "La ubicación no contiene coordenadas."
+        datos = {
+            "gps_latitude": float(lat),
+            "gps_longitude": float(lon),
+            "gps_accuracy_m": float(accuracy) if accuracy is not None else None,
+            "gps_updated_at": datetime.utcnow().isoformat() + "Z",
+        }
+        supabase.table("viajes").update(datos).eq("id", viaje_id).execute()
+        return True, None
+    except Exception as e:
+        return False, e
 
 
 # =========================================================
@@ -945,6 +970,57 @@ else:
             '<div class="subtitle">Servicios pendientes y completados.</div>',
             unsafe_allow_html=True,
         )
+
+
+    # =========================================================
+    # 📍 GPS DEL CHOFER
+    # =========================================================
+    viajes_gps = supabase.table("viajes").select("*").eq(
+        "chofer_cedula", c["cedula"]
+    ).in_(
+        "estatus",
+        [ESTADO_ACEPTADA, ESTADO_EN_CAMINO, ESTADO_EN_ENTREGA],
+    ).order("id", desc=True).limit(1).execute().data
+
+    if viajes_gps:
+        viaje_gps = viajes_gps[0]
+
+        @st.fragment(run_every="20s")
+        def monitor_gps():
+            render_html(
+                """
+                <div class="trip-box" style="border-left-color:#2563EB;">
+                    <div style="font-weight:800;color:#111827;">📍 Seguimiento GPS</div>
+                    <div style="font-size:13px;color:#6B7280;margin-top:4px;">
+                        Ubicación compartida mientras la carrera está activa.
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+            location = get_geolocation()
+
+            if location and "error" in location:
+                code = location["error"].get("code")
+                if code == 1:
+                    st.warning("📍 Debes permitir el acceso a la ubicación.")
+                else:
+                    st.warning(
+                        f"⚠️ GPS: {location['error'].get('message', 'Error desconocido')}"
+                    )
+            elif location and "coords" in location:
+                ok, error = guardar_ubicacion_gps(viaje_gps["id"], location)
+                if ok:
+                    accuracy = location["coords"].get("accuracy")
+                    st.success(
+                        "📍 GPS activo"
+                        + (f" · precisión aprox. {accuracy:.0f} m" if accuracy else "")
+                    )
+                else:
+                    st.error(f"No fue posible guardar la ubicación: {error}")
+
+        monitor_gps()
 
         tab_pending, tab_done = st.tabs(
             ["📥 Nuevas / Activas", "🟢 Completados"]
