@@ -444,11 +444,13 @@ supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
 ESTADO_NUEVA = "🟡 Nueva"
 ESTADO_ACEPTADA = "🔵 Aceptada"
+ESTADO_EN_CAMINO = "🟠 En camino"
+ESTADO_EN_ENTREGA = "🟣 En entrega"
 ESTADO_RECHAZADA = "🔴 Rechazada"
 ESTADO_ENTREGADA = "🟢 Entregado"
 ESTADO_LEGACY = "🟡 En Ruta"
 
-ESTADOS_PENDIENTES_CHOFER = {ESTADO_NUEVA, ESTADO_ACEPTADA, ESTADO_LEGACY}
+ESTADOS_PENDIENTES_CHOFER = {ESTADO_NUEVA, ESTADO_ACEPTADA, ESTADO_EN_CAMINO, ESTADO_EN_ENTREGA, ESTADO_LEGACY}
 
 
 def actualizar_estatus_viaje(viaje_id, nuevo_estatus):
@@ -785,46 +787,90 @@ else:
 
                 else:
                     if estatus_viaje == ESTADO_ACEPTADA:
-                        st.success("🔵 Carrera aceptada · Ya puedes realizar la entrega.")
-                    elif estatus_viaje == ESTADO_LEGACY:
-                        st.info("🛵 Carrera activa de un despacho anterior.")
-
-                    foto = st.camera_input(
-                        "📸 Tomar foto de entrega",
-                        key=f"cam_home_{v['id']}",
-                    )
-
-                    if foto:
+                        st.success("🔵 Carrera aceptada · Confirma cuando salgas hacia el origen.")
                         if st.button(
-                            "✅ Confirmar entrega y enviar foto",
-                            key=f"btn_home_{v['id']}",
+                            "🛵 Iniciar camino al origen",
+                            key=f"start_{v['id']}",
                             use_container_width=True,
                             type="primary",
                         ):
-                            b64_foto = (
-                                "data:image/png;base64,"
-                                + base64.b64encode(foto.getvalue()).decode()
-                            )
-
-                            ok, error = actualizar_estatus_viaje(
-                                v["id"], ESTADO_ENTREGADA
-                            )
+                            ok, error = actualizar_estatus_viaje(v["id"], ESTADO_EN_CAMINO)
                             if ok:
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible iniciar el viaje: {error}")
+
+                    elif estatus_viaje == ESTADO_EN_CAMINO:
+                        st.warning("🟠 En camino al origen")
+                        st.caption("Cuando llegues al punto de recogida, inicia la entrega.")
+                        if st.button(
+                            "📦 Llegué al origen · Iniciar entrega",
+                            key=f"pickup_{v['id']}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            ok, error = actualizar_estatus_viaje(v["id"], ESTADO_EN_ENTREGA)
+                            if ok:
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible iniciar la entrega: {error}")
+
+                    elif estatus_viaje == ESTADO_EN_ENTREGA:
+                        st.info("🟣 En entrega · Toma la foto al completar el servicio.")
+                        foto = st.camera_input(
+                            "📸 Tomar foto de entrega",
+                            key=f"cam_home_{v['id']}",
+                        )
+
+                        if foto:
+                            if st.button(
+                                "✅ Confirmar entrega y enviar foto",
+                                key=f"btn_home_{v['id']}",
+                                use_container_width=True,
+                                type="primary",
+                            ):
+                                b64_foto = (
+                                    "data:image/png;base64,"
+                                    + base64.b64encode(foto.getvalue()).decode()
+                                )
+
                                 try:
                                     (
                                         supabase.table("viajes")
-                                        .update({"foto_base64": b64_foto})
+                                        .update({
+                                            "estatus": ESTADO_ENTREGADA,
+                                            "foto_base64": b64_foto,
+                                        })
                                         .eq("id", v["id"])
                                         .execute()
                                     )
                                     st.success("¡Entrega guardada correctamente!")
                                     st.rerun()
                                 except Exception as e:
-                                    st.error(
-                                        f"La entrega cambió de estado, pero no se pudo guardar la foto: {e}"
-                                    )
-                            else:
-                                st.error(f"No fue posible guardar la entrega: {error}")
+                                    st.error(f"No fue posible guardar la entrega: {e}")
+
+                    elif estatus_viaje == ESTADO_LEGACY:
+                        st.info("🛵 Carrera activa de un despacho anterior.")
+                        foto = st.camera_input(
+                            "📸 Tomar foto de entrega",
+                            key=f"cam_home_{v['id']}",
+                        )
+                        if foto and st.button(
+                            "✅ Confirmar entrega y enviar foto",
+                            key=f"btn_home_{v['id']}",
+                            use_container_width=True,
+                            type="primary",
+                        ):
+                            b64_foto = "data:image/png;base64," + base64.b64encode(foto.getvalue()).decode()
+                            try:
+                                supabase.table("viajes").update({
+                                    "estatus": ESTADO_ENTREGADA,
+                                    "foto_base64": b64_foto,
+                                }).eq("id", v["id"]).execute()
+                                st.success("¡Entrega guardada correctamente!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"No fue posible guardar la entrega: {e}")
 
         render_html(
             '<div class="section-title">💰 Resumen</div>',
@@ -963,6 +1009,31 @@ else:
                                     st.error(f"No fue posible rechazar: {error}")
                     elif v.get("estatus") == ESTADO_ACEPTADA:
                         st.success("🔵 Carrera aceptada")
+                        if st.button("🛵 Iniciar camino al origen", key=f"start_list_{v['id']}", use_container_width=True, type="primary"):
+                            ok, error = actualizar_estatus_viaje(v["id"], ESTADO_EN_CAMINO)
+                            if ok:
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible iniciar el viaje: {error}")
+                    elif v.get("estatus") == ESTADO_EN_CAMINO:
+                        st.warning("🟠 En camino al origen")
+                        if st.button("📦 Llegué al origen · Iniciar entrega", key=f"pickup_list_{v['id']}", use_container_width=True, type="primary"):
+                            ok, error = actualizar_estatus_viaje(v["id"], ESTADO_EN_ENTREGA)
+                            if ok:
+                                st.rerun()
+                            else:
+                                st.error(f"No fue posible iniciar la entrega: {error}")
+                    elif v.get("estatus") == ESTADO_EN_ENTREGA:
+                        st.info("🟣 En entrega")
+                        foto = st.camera_input("📸 Tomar foto de entrega", key=f"cam_list_{v['id']}")
+                        if foto and st.button("✅ Confirmar entrega y enviar foto", key=f"btn_list_{v['id']}", use_container_width=True, type="primary"):
+                            b64_foto = "data:image/png;base64," + base64.b64encode(foto.getvalue()).decode()
+                            try:
+                                supabase.table("viajes").update({"estatus": ESTADO_ENTREGADA, "foto_base64": b64_foto}).eq("id", v["id"]).execute()
+                                st.success("¡Entrega guardada correctamente!")
+                                st.rerun()
+                            except Exception as e:
+                                st.error(f"No fue posible guardar la entrega: {e}")
                     elif v.get("estatus") == ESTADO_LEGACY:
                         st.info("🛵 Carrera activa de un despacho anterior")
 
